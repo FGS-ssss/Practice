@@ -51,7 +51,7 @@ def make_model(source_vocab, target_vocab, N=6, d_model=512, d_ff=2048, head=8, 
         Decoder(DecoderLayer(d_model, c(attn), c(attn), c(ff), dropout), N),
         nn.Sequential(Embeddings(d_model, source_vocab), c(position)),
         nn.Sequential(Embeddings(d_model, target_vocab), c(position)),
-        Generator(d_model, target_vocab)
+        vocab=source_vocab, d_model=d_model
     )
     
     for p in model.parameters():
@@ -87,6 +87,8 @@ class Embeddings(nn.Module):
         self.d_model = d_model
     
     def forward(self,x):
+        print("Em start")
+        print(x.shape)
         return self.lat(x) * math.sqrt(self.d_model)
     """
     传入sentences句长length的文本 X.shape = [sentences, length]
@@ -111,11 +113,10 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0)
         """pe.shape = 1, max_len, dims"""
         self.register_buffer('pe',pe)
-    """
-    ?why using torch.sin and torch.cos here. Sin and cos might eliminate positional encoding effect.
-    """
 
     def forward(self,x):
+        print("PE start")
+        print(x.shape)
         x = x + self.pe[:,:x.size(1)]
         return self.dropout(x)
 
@@ -138,6 +139,8 @@ class MultiHeadedAttention(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, query, key, value, mask=None):
+        print("MHA Start")
+        print(query.shape)
         if mask is not None:
             mask = mask.unsqueeze(1)
 
@@ -165,7 +168,10 @@ class PositionwiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
-        return self.linear2(self.dropout(F.relu(self.linear1(x))))
+        print("FF Start")
+        print(x.shape)
+        x = self.linear2(self.dropout(F.relu(self.linear1(x))))
+        return x
     
 
 class LayerNorm(nn.Module):
@@ -179,6 +185,8 @@ class LayerNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
+        print("Norm Start")
+        print(x.shape)
         mean = x.mean(-1, keepdim=True)
         std =  x.std(-1, keepdim=True)
         return self.a2 * (x - mean) / (std + self.eps) + self.b2
@@ -208,7 +216,7 @@ class EncoderLayer(nn.Module):
     def forward(self, x, mask):
         x = self.sublayer[0](x, lambda x: self.self_attn(x,x,x,mask))
         x = self.sublayer[1](x, self.feed_forward)
-
+        return x
 
 class Encoder(nn.Module):
     def __init__(self, layer, N):
@@ -236,6 +244,8 @@ class DecoderLayer(nn.Module):
         self.size = size
 
     def forward(self, x, memory, source_mask, target_mask):
+        print("DecoderLayer Start")
+        print(x.shape)
         x = self.sublayer[0](x, lambda x: self.masked_self_attn(x, x, x, target_mask))
         x = self.sublayer[1](x, lambda x: self.src_attn(x, memory, memory, source_mask))
         return self.sublayer[2](x, self.feed_forward)
@@ -256,23 +266,33 @@ class Decoder(nn.Module):
 
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, encoder, decoder, source_embed, target_embede, generator):
+    def __init__(self, encoder, decoder, source_embed, target_embede, vocab, d_model):
         super(EncoderDecoder, self).__init__()
 
         self.encoder = encoder
         self.decoder = decoder
         self.src_embed = source_embed
         self.tgt_embed = target_embede
-        self.generator = generator
+        self.out = nn.Linear(d_model, vocab)
+        # self.generator = generator
 
     def encode(self, source, source_mask):
-        return self.encoder(self.src_embed(source), source_mask)
+        encode_re = self.encoder(self.src_embed(source), source_mask)
+        print("Encode over")
+        return encode_re
     
     def decode(self, memory, source_mask, target, target_mask):
-        return self.decoder(self.tgt_embed(target), memory, source_mask, target_mask)
+        print("Decode Start")
+        print(target.shape)
+        decode_re = self.decoder(self.tgt_embed(target), memory, source_mask, target_mask)
+        print("Decode Over")
+        return decode_re
     
     def forward(self, source, target, source_mask, target_mask):
-        return self.decode(self.encode(source, source_mask), target, source_mask, target_mask)
+        print(target.shape)
+        rep = self.decode(self.encode(source, source_mask), source_mask, target, target_mask)
+        output = self.out(rep)
+        return output
     
 
 class Generator(nn.Module):

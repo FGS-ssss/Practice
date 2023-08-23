@@ -4,11 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import copy
-from pyitcast.transformer_utils import Batch
-from pyitcast.transformer_utils import get_std_opt
-from pyitcast.transformer_utils import LabelSmoothing
-from pyitcast.transformer_utils import SimpleLossCompute
-from pyitcast.transformer_utils import run_epoch
 from torch.autograd import Variable
 
 
@@ -21,6 +16,7 @@ def subsequent_mask(size):
     attn_shape = (1,size,size)
     subsequent_mask = np.triu(np.ones(attn_shape),k=1).astype('uint8')
     return torch.from_numpy(1-subsequent_mask)
+
 
 def attention(query, key, value, mask=None, dropout=None):
     d_k = query.size(-1)
@@ -37,8 +33,10 @@ def attention(query, key, value, mask=None, dropout=None):
     
     return torch.matmul(p_attn,value), p_attn
 
+
 def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
 
 def make_model(source_vocab, target_vocab, N=6, d_model=512, d_ff=2048, head=8, dropout=0.1):
     c = copy.deepcopy
@@ -61,24 +59,6 @@ def make_model(source_vocab, target_vocab, N=6, d_model=512, d_ff=2048, head=8, 
     return model
 
 
-def data_generator(V, batch_size, num_batch):
-    for i in range(num_batch):
-        data = torch.from_numpy(np.random.randint(1, V, size=(batch_size, 10)))
-        data[:,0] = 1
-
-        source = Variable(data, requires_grad=False)
-        target = Variable(data, requires_grad=False)
-
-        yield Batch(source, target)
-
-def run(model, loss, epochs=10):
-    for epoch in range(epochs):
-        model.train()
-        run_epoch(data_generator(V, 8, 20), model, loss)
-
-        model.eval()
-        run_epoch(data_generator(V, 8, 5), model, loss)
-
 
 class Embeddings(nn.Module):
     def __init__(self, d_model, vocab):
@@ -87,46 +67,35 @@ class Embeddings(nn.Module):
         self.d_model = d_model
     
     def forward(self,x):
-        print("Em start")
-        print(x.shape)
         return self.lat(x) * math.sqrt(self.d_model)
-    """
-    传入sentences句长length的文本 X.shape = [sentences, length]
-    传出 Em.shape = [sentences, length, dims]
-    """
+
     
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim, dropout, max_len=5000):
-        # dims: dimensions of embeddings
-        # dropout: ratio of set zero
-        # max_len: maximal length of sentences
+
         super(PositionalEncoding,self).__init__()
         self.dropout = nn.Dropout(p=dropout)
         pe = torch.zeros(max_len,dim)
         position = torch.arange(0,max_len).unsqueeze(1)
-        """position.shape = max_len, 1"""
+
         div_term = torch.exp(torch.arange(0,dim,2) * -math.log(10000.0) / dim)
-        """div_term.shape = 1, dims/2"""
+
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
-        """pe.shape = 1, max_len, dims"""
+
         self.register_buffer('pe',pe)
 
     def forward(self,x):
-        print("PE start")
-        print(x.shape)
         x = x + self.pe[:,:x.size(1)]
         return self.dropout(x)
 
 
 class MultiHeadedAttention(nn.Module):
-    """多头注意力"""
+
     def __init__(self, head, embedding_dim, dropout = 0.1):
         super(MultiHeadedAttention,self).__init__()
-
-        assert embedding_dim % head == 0, "The number of heads doesn't match the embeading_dim"
 
         self.d_k = embedding_dim // head
         self.head = head
@@ -139,8 +108,6 @@ class MultiHeadedAttention(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, query, key, value, mask=None):
-        print("MHA Start")
-        print(query.shape)
         if mask is not None:
             mask = mask.unsqueeze(1)
 
@@ -158,7 +125,7 @@ class MultiHeadedAttention(nn.Module):
     
 
 class PositionwiseFeedForward(nn.Module):
-    """前馈连接层"""
+
     def __init__(self, dim1, dim2, dropout=0.1):
         super(PositionwiseFeedForward, self).__init__()
 
@@ -168,14 +135,12 @@ class PositionwiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
-        print("FF Start")
-        print(x.shape)
         x = self.linear2(self.dropout(F.relu(self.linear1(x))))
         return x
     
 
 class LayerNorm(nn.Module):
-    """规范化层"""
+
     def __init__(self, dim, eps=1e-6):
         super(LayerNorm, self).__init__()
 
@@ -185,8 +150,6 @@ class LayerNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
-        print("Norm Start")
-        print(x.shape)
         mean = x.mean(-1, keepdim=True)
         std =  x.std(-1, keepdim=True)
         return self.a2 * (x - mean) / (std + self.eps) + self.b2
@@ -244,8 +207,6 @@ class DecoderLayer(nn.Module):
         self.size = size
 
     def forward(self, x, memory, source_mask, target_mask):
-        print("DecoderLayer Start")
-        print(x.shape)
         x = self.sublayer[0](x, lambda x: self.masked_self_attn(x, x, x, target_mask))
         x = self.sublayer[1](x, lambda x: self.src_attn(x, memory, memory, source_mask))
         return self.sublayer[2](x, self.feed_forward)
@@ -278,27 +239,14 @@ class EncoderDecoder(nn.Module):
 
     def encode(self, source, source_mask):
         encode_re = self.encoder(self.src_embed(source), source_mask)
-        print("Encode over")
         return encode_re
     
     def decode(self, memory, source_mask, target, target_mask):
-        print("Decode Start")
-        print(target.shape)
         decode_re = self.decoder(self.tgt_embed(target), memory, source_mask, target_mask)
-        print("Decode Over")
         return decode_re
     
     def forward(self, source, target, source_mask, target_mask):
-        print(target.shape)
         rep = self.decode(self.encode(source, source_mask), source_mask, target, target_mask)
         output = self.out(rep)
         return output
     
-
-class Generator(nn.Module):
-    def __init__(self, dim, vocab):
-        super(Generator, self).__init__()
-        self.project = nn.Linear(dim, vocab)
-
-    def forward(self, x):
-        return F.log_softmax(self.project(x), dim=-1)

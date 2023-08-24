@@ -8,10 +8,6 @@ from torch.autograd import Variable
 
 
 
-V = 11
-batch_size = 10
-num_batch = 20
-
 def subsequent_mask(size):
     attn_shape = (1,size,size)
     subsequent_mask = np.triu(np.ones(attn_shape),k=1).astype('uint8')
